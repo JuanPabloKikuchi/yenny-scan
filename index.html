@@ -1,55 +1,91 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Yenny Scan</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{font-family:system-ui,-apple-system;background:#111;color:#fff;margin:0;padding:12px}
-h2{margin:8px 0 12px;font-size:20px;text-align:center}
+*{box-sizing:border-box}body{font-family:system-ui;background:#111;color:#fff;margin:0;padding:12px}
+h2{text-align:center;margin:10px 0}
 #reader{width:100%;max-width:400px;margin:0 auto;background:#000;border-radius:20px;overflow:hidden;min-height:280px}
-#reader video{object-fit:cover}
-.controls{display:flex;gap:8px;max-width:400px;margin:12px auto}
+.controls{max-width:400px;margin:12px auto;display:flex;gap:8px}
 input{flex:1;padding:14px;border-radius:12px;border:1px solid #333;background:#222;color:#fff;font-size:16px}
-button{padding:14px 18px;border-radius:12px;border:0;background:#fff;color:#000;font-weight:700;font-size:15px}
-button.sec{background:#222;color:#fff;border:1px solid #444}
-#out{max-width:400px;margin:16px auto}
-.card{background:#1e1e1e;border-radius:18px;padding:14px;display:flex;gap:14px;border:1px solid #2a2a2a}
-.card img{width:110px;height:155px;object-fit:cover;border-radius:10px;background:#2a2a2a;flex-shrink:0}
-.precio{font-size:24px;font-weight:900;margin-top:8px;color:#7CFC00}
-.link{display:block;margin-top:10px;background:#fff;color:#000;padding:10px;text-align:center;border-radius:10px;text-decoration:none;font-weight:700}
+button{padding:14px;border-radius:12px;border:0;background:#fff;color:#000;font-weight:700;width:100%;font-size:16px}
+button.sec{background:#222;color:#fff;border:1px solid #444;margin-top:8px}
+#out{max-width:400px;margin:18px auto}
+.card{background:#1e1e1e;border-radius:18px;padding:14px;display:flex;gap:14px;border:1px solid #333}
+.card img{width:110px;height:160px;object-fit:cover;border-radius:10px;background:#222}
+.precio{font-size:26px;font-weight:900;color:#7CFC00;margin-top:10px}
+.titulo{font-size:17px;font-weight:700;line-height:1.2}
+.autor{opacity:.7;font-size:14px;margin-top:4px}
 </style>
 </head>
 <body>
-<h2>📚 Yenny Scan PRO</h2>
+<h2>📚 Yenny Scan</h2>
 <div id="reader"></div>
-<div class="controls">
-<input id="isbnInput" inputmode="numeric" placeholder="ISBN">
-<button onclick="buscar()">Buscar</button>
-</div>
-<div class="controls">
-<button class="sec" style="width:100%" id="camBtn" onclick="toggleCam()">📷 Activar cámara</button>
+<div class="controls" style="flex-direction:column">
+<button id="camBtn" onclick="toggleCam()">📷 INICIAR ESCÁNER</button>
+<input id="isbnInput" inputmode="numeric" placeholder="Si no escanea, escribe el ISBN acá">
+<button class="sec" onclick="buscar()">BUSCAR MANUAL</button>
 </div>
 <div id="out"></div>
+
 <script>
-let html5Qr, camOn=false
+let html5Qr=null, camOn=false
 const out=document.getElementById('out')
 const btn=document.getElementById('camBtn')
+const input=document.getElementById('isbnInput')
+
 async function toggleCam(){
- if(camOn){ await html5Qr.stop(); camOn=false; btn.textContent='📷 Activar cámara'; return}
- html5Qr=new Html5Qrcode("reader")
- await html5Qr.start({facingMode:"environment"},{fps:10,qrbox:{width:280,height:180},aspectRatio:1.0},
-  t=>{ let isbn=t.replace(/\D/g,''); if(isbn.length>=10){ document.getElementById('isbnInput').value=isbn; buscar(); toggleCam() }})
- camOn=true; btn.textContent='⏸️ Pausar cámara'
+ try{
+  if(camOn){
+   await html5Qr.stop()
+   await html5Qr.clear()
+   camOn=false
+   btn.textContent='📷 INICIAR ESCÁNER'
+   return
+  }
+  html5Qr=new Html5Qrcode("reader")
+  await html5Qr.start(
+   {facingMode:"environment"},
+   {fps:15, qrbox:{width:300,height:150}},
+   onScanSuccess
+  )
+  camOn=true
+  btn.textContent='⏹️ DETENER'
+ }catch(e){ alert('No se pudo abrir cámara: '+e); camOn=false }
 }
+
+function onScanSuccess(decodedText){
+ let isbn=decodedText.replace(/\D/g,'')
+ if(isbn.length<10) return
+ input.value=isbn
+ // para la camara un segundo para que no siga leyendo
+ html5Qr.pause()
+ buscar().then(()=>{
+  setTimeout(()=>{ if(camOn) html5Qr.resume() }, 1500)
+ })
+}
+
 async function buscar(){
- let isbn=document.getElementById('isbnInput').value.replace(/\D/g,'')
- if(isbn.length<10){alert('ISBN incompleto'); return}
- out.innerHTML='<p style=text-align:center>🔍 Buscando en Yenny...</p>'
+ let isbn=input.value.replace(/\D/g,'')
+ if(isbn.length<10){ alert('ISBN inválido'); return }
+ out.innerHTML='<p style=text-align:center>🔍 Buscando...</p>'
  try{
   let d=await fetch(`/api/buscar?isbn=${isbn}`).then(r=>r.json())
-  out.innerHTML=`<div class=card><img src="${d.tapa}" onerror="this.src='https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg'"><div><b>${d.titulo}</b><br><small style="opacity:.7">${d.autor||''}</small><br><small style="opacity:.5">${isbn}</small><div class=precio>${d.precio}</div><a class=link href="${d.url}" target=_blank>Ver en Yenny</a></div></div>`
- }catch(e){ out.innerHTML='Error buscando' }
+  out.innerHTML=`
+   <div class=card>
+    <img src="${d.tapa}" onerror="this.src='https://via.placeholder.com/110x160?text=Sin+Tapa'">
+    <div>
+     <div class=titulo>${d.titulo}</div>
+     <div class=autor>${d.autor||'Autor no disponible'}</div>
+     <div style="margin-top:8px;opacity:.5;font-size:12px">${d.isbn}</div>
+     <div class=precio>${d.precio}</div>
+    </div>
+   </div>
+   <button class="sec" onclick="input.value=''; out.innerHTML=''; if(!camOn) toggleCam(); else html5Qr.resume()">📷 ESCANEAR OTRO</button>
+  `
+ }catch(e){ out.innerHTML='<p style=text-align:center>Error al buscar</p>'; if(camOn) html5Qr.resume() }
 }
 </script>
 </body>
