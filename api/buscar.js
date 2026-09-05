@@ -2,11 +2,18 @@ export default async function handler(req,res){
   const isbn=(req.query.isbn||'').replace(/\D/g,'')
   if(!isbn) return res.status(400).json({error:'isbn'})
 
-  let titulo='',autor='',tapa='',precio='No figura en Yenny'
+  // helper con timeout
+  const fetchTimeout = (url, opts={}, ms=2500) => {
+    const c=new AbortController()
+    const t=setTimeout(()=>c.abort(), ms)
+    return fetch(url,{...opts, signal:c.signal}).finally(()=>clearTimeout(t))
+  }
 
-  // 1. Google Books (Librito hace esto, siempre trae algo)
+  let titulo='', autor='', tapa='', precio='No figura en Yenny'
+
+  // 1. Google Books rápido (2.5s max) - trae titulo, autor, tapa
   try{
-    const g=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json())
+    const g=await fetchTimeout(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`,{},2500).then(r=>r.json())
     const info=g.items?.[0]?.volumeInfo
     if(info){
       titulo=info.title||''
@@ -15,40 +22,34 @@ export default async function handler(req,res){
     }
   }catch{}
 
-  // 2. Yenny con proxy (para que no nos bloquee) - saca precio real
+  // 2. Yenny VTEX rápido (2.5s max) - trae precio
   try{
-    // proxy allorigins para bypassear bloqueo de Yenny
-    const target=`https://www.yenny-elateneo.com/${isbn}`
-    const proxy=`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
-    const data=await fetch(proxy).then(r=>r.json())
-    const html=data.contents||''
-
-    // Precio Yenny está en meta o en texto $ xx.xxx,xx
-    let m=html.match(/"price":\s*"?([\d\.]+)"?/) || html.match(/\$[\s]*([\d]{1,3}(?:\.\d{3})*,\d{2})/)
-    if(m){
-      let p=m[1]
-      if(!p.includes('$')) p=`$ ${p}`
-      precio=p.includes(',')?p:`$ ${Number(p).toLocaleString('es-AR')}`
+    const url=`https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${isbn}`
+    const data=await fetchTimeout(url,{headers:{'Accept':'application/json'}},2500).then(r=>r.json())
+    if(data?.[0]){
+      const p=data[0]
+      if(p.productName) titulo=p.productName
+      const item=p.items?.[0]
+      if(item?.images?.[0]?.imageUrl) tapa=item.images[0].imageUrl
+      const offer=item?.sellers?.[0]?.commertialOffer
+      if(offer){
+        precio=offer.AvailableQuantity===0?'Sin stock':`$ ${Number(offer.Price).toLocaleString('es-AR',{minimumFractionDigits:2})}`
+      }
+      // autor desde specs
+      if(p.allSpecifications){
+        for(let k of p.allSpecifications){
+          if(k.toLowerCase().includes('autor')){
+            let v=p.allSpecificationsValues?.[k]?.[0]
+            if(v) autor=v
+          }
+        }
+      }
     }
-    // Si no, busca todos los $ y agarra el primero que parece precio de libro (no 35.000 de envío)
-    if(precio==='No figura en Yenny'){
-      const all=[...html.matchAll(/\$\s*([\d]{1,3}(?:\.\d{3})*,\d{2})/g)].map(x=>x[0])
-      if(all[0]) precio=all[0]
-    }
-
-    let mTitle=html.match(/<meta property="og:title" content="([^"]+)/)
-    if(mTitle) titulo=mTitle[1].split('|')[0].trim()
-
-    let mImg=html.match(/<meta property="og:image" content="([^"]+)/)
-    if(mImg) tapa=mImg[1]
-
-    let mAuthor=html.match(/"author"[^}]*"name":"([^"]+)/)
-    if(mAuthor) autor=mAuthor[1]
-  }catch(e){ console.log('proxy fail',e) }
+  }catch{}
 
   if(!tapa) tapa=`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
   if(!titulo) titulo='Libro '+isbn
-  if(!autor) autor=''
 
+  res.setHeader('Cache-Control','s-maxage=60')
   return res.json({isbn, titulo, autor, tapa, precio})
 }
