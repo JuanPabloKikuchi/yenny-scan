@@ -1,46 +1,47 @@
+// api/buscar.js - como hace librito.com.ar
 export default async function handler(req,res){
   const isbn=(req.query.isbn||'').replace(/\D/g,'')
-  if(!isbn) return res.status(400).json({error:'isbn'})
+  let titulo='', autor='', tapa='', precio='Consultar'
 
-  // 1. Google Books - titulo, autor, tapa
-  let titulo='', autor='', tapa=''
+  // 1. Google Books para titulo/autor/tapa (base de librito)
   try{
-    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)
-    const j=await r.json()
-    const info=j.items?.[0]?.volumeInfo
-    if(info){
-      titulo=info.title||''
-      autor=(info.authors||[]).join(', ')
-      tapa=info.imageLinks?.thumbnail?.replace('http://','https://')||''
+    const g=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json())
+    const i=g.items?.[0]?.volumeInfo
+    if(i){
+      titulo=i.title||''
+      autor=(i.authors||[]).join(', ')
+      tapa=i.imageLinks?.thumbnail?.replace('http://','https://')||''
     }
   }catch{}
 
-  // 2. OpenLibrary - respaldo 100% fiable
-  if(!titulo){
-    try{
-      const r=await fetch(`https://openlibrary.org/isbn/${isbn}.json`)
-      const j=await r.json()
-      if(j.title) titulo=j.title
-    }catch{}
-  }
+  // 2. Yenny HTML -> saca precio del ld+json (truco de librito)
+  try{
+    const html=await fetch(`https://www.yenny-elateneo.com/${isbn}`,{
+      headers:{
+        'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept-Language':'es-AR,es;q=0.9'
+      }
+    }).then(r=>r.text())
+
+    const jsonMatch=html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)
+    if(jsonMatch){
+      const data=JSON.parse(jsonMatch[1])
+      const product=Array.isArray(data)?data.find(x=>x['@type']==='Product'):data
+      if(product){
+        if(product.name) titulo=product.name
+        if(product.image) tapa=Array.isArray(product.image)?product.image[0]:product.image
+        if(product.offers?.price) precio=`$ ${Number(product.offers.price).toLocaleString('es-AR',{minimumFractionDigits:2})}`
+      }
+    }
+    // autor a veces está en meta
+    if(!autor){
+      const m=html.match(/"author":"([^"]+)"/)
+      if(m) autor=m[1]
+    }
+  }catch{}
+
   if(!tapa) tapa=`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
-  if(!titulo) titulo='Abremente Grafismos Escribir Y Borrar'
-
-  // 3. Precio - Intento Yenny, si falla pongo precio real que conozco
-  let precio='Consultar'
-  try{
-    const r=await fetch(`https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${isbn}`,{headers:{'Accept':'application/json'}})
-    const d=await r.json()
-    if(d?.[0]?.items?.[0]?.sellers?.[0]?.commertialOffer?.Price){
-      precio=`$ ${Number(d[0].items[0].sellers[0].commertialOffer.Price).toLocaleString('es-AR')}`
-    }
-  }catch{}
-
-  // Fallback para tu libro puntual que Yenny esconde
-  if(precio==='Consultar' && isbn==='9789878152349'){
-    precio='$ 26.500,00'
-    if(!autor) autor='Catapulta Editores'
-  }
+  if(!titulo) titulo='Libro '+isbn
 
   return res.json({isbn, titulo, autor, tapa, precio})
 }
