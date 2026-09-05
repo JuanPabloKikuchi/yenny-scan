@@ -1,1 +1,56 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Yenny Scan</title><script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script><style>body{font-family:system-ui;padding:16px;max-width:480px;margin:auto;background:#f6f6f6}#reader{background:#000;border-radius:16px;overflow:hidden}.card{background:#fff;border-radius:16px;padding:14px;margin-top:14px;display:flex;gap:12px}img{width:110px;height:160px;object-fit:cover;border-radius:10px;background:#eee}input,button{width:100%;padding:14px;border-radius:10px;font-size:16px}input{border:1px solid #ddd;margin-top:10px}button{border:0;background:#000;color:#fff;margin-top:8px}button.sec{background:#fff;color:#000;border:1px solid #000}.precio{font-size:22px;font-weight:800}</style></head><body><h2>📚 Yenny Scan - Precio Real</h2><div id="reader"></div><input id="isbnInput" placeholder="ISBN ej: 9789506448547"><button onclick="buscar()">Buscar precio en Yenny</button><button class="sec" onclick="toggleCam()">📷 Activar / Pausar cámara</button><div id="out"></div><script>let out=document.getElementById('out'),camOn=false,html5Qr;async function toggleCam(){if(camOn){await html5Qr.stop();camOn=false;return}html5Qr=new Html5Qrcode("reader");await html5Qr.start({facingMode:"environment"},{fps:10,qrbox:250},t=>{isbnInput.value=t.replace(/\D/g,'');buscar()});camOn=true}toggleCam();async function buscar(){let isbn=isbnInput.value.replace(/\D/g,'');if(isbn.length<10){alert('ISBN corto');return}out.innerHTML='🔍 Buscando '+isbn+'...';let d=await fetch(`/api/buscar?isbn=${isbn}`).then(r=>r.json());out.innerHTML=`<div class=card><img src="${d.tapa}"><div><b>${d.titulo}</b><br><small>${d.autor||''}</small><br><small>${isbn}</small><div class=precio>${d.precio||'Consultar'}</div><a href="${d.url}" target="_blank" style="display:block;margin-top:8px;background:#000;color:#fff;padding:8px;text-align:center;border-radius:8px;text-decoration:none">Ver en Yenny</a></div></div>`}</script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Yenny Scan</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system;background:#111;color:#fff;margin:0;padding:12px}
+h2{margin:8px 0 12px;font-size:20px;text-align:center}
+#reader{width:100%;max-width:400px;margin:0 auto;background:#000;border-radius:20px;overflow:hidden;min-height:280px}
+#reader video{object-fit:cover}
+.controls{display:flex;gap:8px;max-width:400px;margin:12px auto}
+input{flex:1;padding:14px;border-radius:12px;border:1px solid #333;background:#222;color:#fff;font-size:16px}
+button{padding:14px 18px;border-radius:12px;border:0;background:#fff;color:#000;font-weight:700;font-size:15px}
+button.sec{background:#222;color:#fff;border:1px solid #444}
+#out{max-width:400px;margin:16px auto}
+.card{background:#1e1e1e;border-radius:18px;padding:14px;display:flex;gap:14px;border:1px solid #2a2a2a}
+.card img{width:110px;height:155px;object-fit:cover;border-radius:10px;background:#2a2a2a;flex-shrink:0}
+.precio{font-size:24px;font-weight:900;margin-top:8px;color:#7CFC00}
+.link{display:block;margin-top:10px;background:#fff;color:#000;padding:10px;text-align:center;border-radius:10px;text-decoration:none;font-weight:700}
+</style>
+</head>
+<body>
+<h2>📚 Yenny Scan PRO</h2>
+<div id="reader"></div>
+<div class="controls">
+<input id="isbnInput" inputmode="numeric" placeholder="ISBN">
+<button onclick="buscar()">Buscar</button>
+</div>
+<div class="controls">
+<button class="sec" style="width:100%" id="camBtn" onclick="toggleCam()">📷 Activar cámara</button>
+</div>
+<div id="out"></div>
+<script>
+let html5Qr, camOn=false
+const out=document.getElementById('out')
+const btn=document.getElementById('camBtn')
+async function toggleCam(){
+ if(camOn){ await html5Qr.stop(); camOn=false; btn.textContent='📷 Activar cámara'; return}
+ html5Qr=new Html5Qrcode("reader")
+ await html5Qr.start({facingMode:"environment"},{fps:10,qrbox:{width:280,height:180},aspectRatio:1.0},
+  t=>{ let isbn=t.replace(/\D/g,''); if(isbn.length>=10){ document.getElementById('isbnInput').value=isbn; buscar(); toggleCam() }})
+ camOn=true; btn.textContent='⏸️ Pausar cámara'
+}
+async function buscar(){
+ let isbn=document.getElementById('isbnInput').value.replace(/\D/g,'')
+ if(isbn.length<10){alert('ISBN incompleto'); return}
+ out.innerHTML='<p style=text-align:center>🔍 Buscando en Yenny...</p>'
+ try{
+  let d=await fetch(`/api/buscar?isbn=${isbn}`).then(r=>r.json())
+  out.innerHTML=`<div class=card><img src="${d.tapa}" onerror="this.src='https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg'"><div><b>${d.titulo}</b><br><small style="opacity:.7">${d.autor||''}</small><br><small style="opacity:.5">${isbn}</small><div class=precio>${d.precio}</div><a class=link href="${d.url}" target=_blank>Ver en Yenny</a></div></div>`
+ }catch(e){ out.innerHTML='Error buscando' }
+}
+</script>
+</body>
+</html>
