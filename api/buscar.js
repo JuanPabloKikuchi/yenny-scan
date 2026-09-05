@@ -1,59 +1,75 @@
-export default async function handler(req, res){
+export default async function handler(req,res){
   const isbn = (req.query.isbn||'').replace(/\D/g,'')
   if(!isbn) return res.status(400).json({error:'isbn'})
 
-  let titulo='', autor='', tapa='', precio='No encontrado'
+  let result = {
+    isbn,
+    titulo: '',
+    autor: '',
+    tapa: '',
+    precio: 'No encontrado en Yenny'
+  }
 
-  // 1. Google Books para titulo, autor y tapa de respaldo (siempre funciona)
-  try{
-    const g = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json())
-    const info = g.items?.[0]?.volumeInfo
-    if(info){
-      titulo = info.title||''
-      autor = (info.authors||[]).join(', ')
-      let img = info.imageLinks?.thumbnail||info.imageLinks?.smallThumbnail||''
-      if(img){ tapa = img.replace('http://','https://').replace('&zoom=1','&zoom=2') }
+  // Intenta 4 endpoints de Yenny hasta que uno devuelva
+  const endpoints = [
+    `https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${isbn}`,
+    `https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?fq=alternateIds_Ean:${isbn}&fq=alternateIds_Isbn:${isbn}`,
+    `https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?ft=${isbn}`,
+    `https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?fq=skuId:${isbn}`
+  ]
+
+  let yennyProduct = null
+  for(let url of endpoints){
+    try{
+      const data = await fetch(url,{headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'}}).then(r=>r.json())
+      if(data && data[0] && data[0].productName){
+        yennyProduct = data[0]
+        break
+      }
+    }catch{}
+  }
+
+  // Si lo encontró en Yenny, saca todo de ahí
+  if(yennyProduct){
+    result.titulo = yennyProduct.productName
+    const item = yennyProduct.items?.[0]
+    if(item?.images?.[0]?.imageUrl) result.tapa = item.images[0].imageUrl
+    const offer = item?.sellers?.[0]?.commertialOffer
+    if(offer){
+      result.precio = offer.AvailableQuantity===0? 'Sin stock' : `$ ${Number(offer.Price).toLocaleString('es-AR',{minimumFractionDigits:2})}`
     }
-  }catch{}
-
-  // 2. Yenny por API VTEX - trae PRECIO REAL + tapa HD + titulo oficial
-  try{
-    const data = await fetch(`https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?ft=${isbn}`,{
-      headers:{'Accept':'application/json','User-Agent':'Mozilla/5.0'}
-    }).then(r=>r.json())
-
-    if(data && data[0]){
-      const p = data[0]
-      // Solo pisa titulo si Yenny tiene uno mejor
-      if(p.productName) titulo = p.productName
-
-      // Autor en Yenny a veces está en especificaciones
-      if(p.allSpecifications){
-        const aut = p.allSpecifications.find(s=>s.toLowerCase().includes('autor'))
-        if(aut && p.allSpecificationsValues && p.allSpecificationsValues[aut]){
-          autor = p.allSpecificationsValues[aut][0]
+    // Autor
+    if(yennyProduct.allSpecifications){
+      // busca la key que sea Autor
+      for(let key of yennyProduct.allSpecifications){
+        if(key.toLowerCase().includes('autor')){
+          const vals = yennyProduct.allSpecificationsValues?.[key]
+          if(vals?.[0]) result.autor = vals[0]
         }
       }
-      if(!autor && p.brand) autor = p.brand // editorial como fallback
+    }
+    if(!result.autor) result.autor = yennyProduct.brand || ''
+  }
 
-      const item = p.items?.[0]
-      if(item?.images?.[0]?.imageUrl){
-        tapa = item.images[0].imageUrl // tapa HD de Yenny
-      }
-      const offer = item?.sellers?.[0]?.commertialOffer
-      if(offer){
-        if(offer.AvailableQuantity===0) precio='Sin stock'
-        else {
-          // Price viene en centavos? No, viene en pesos. Formateamos
-          precio = `$ ${Number(offer.Price).toLocaleString('es-AR',{minimumFractionDigits:2, maximumFractionDigits:2})}`
+  // Completa lo que falte con Google Books
+  if(!result.titulo ||!result.autor ||!result.tapa){
+    try{
+      const g = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json())
+      const info = g.items?.[0]?.volumeInfo
+      if(info){
+        if(!result.titulo) result.titulo = info.title
+        if(!result.autor) result.autor = (info.authors||[]).join(', ')
+        if(!result.tapa){
+          let img = info.imageLinks?.thumbnail||''
+          if(img) result.tapa = img.replace('http://','https://')
         }
       }
-    }
-  }catch(e){ console.log('yenny api error',e) }
+    }catch{}
+  }
 
-  if(!tapa) tapa=`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
-  if(!titulo) titulo='Libro '+isbn
+  if(!result.tapa) result.tapa = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
+  if(!result.titulo) result.titulo = 'Libro '+isbn
 
-  res.setHeader('Cache-Control','s-maxage=300')
-  return res.json({isbn, titulo, autor, tapa, precio})
+  res.setHeader('Cache-Control','s-maxage=120')
+  return res.json(result)
 }
