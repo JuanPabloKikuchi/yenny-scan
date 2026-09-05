@@ -1,3 +1,65 @@
-<script type="application/ld+json">
-{"@type":"Product","name":"Grafismos +4","image":"https://...jpg","offers":{"price":"26500.00"}}
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yenny Scan</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+body{background:#111;color:#fff;font-family:system-ui;padding:12px;margin:0}
+#reader{max-width:380px;margin:0 auto;background:#000;border-radius:16px;overflow:hidden}
+#out{max-width:380px;margin:16px auto}
+.card{background:#1e1e1e;border:1px solid #333;border-radius:16px;padding:12px;display:flex;gap:12px}
+.card img{width:110px;height:160px;object-fit:cover;border-radius:8px;background:#222}
+.t{font-weight:700}.a{opacity:.7;font-size:13px;margin-top:4px}
+.p{color:#7CFC00;font-weight:900;font-size:18px;margin-top:10px}
+button{width:100%;max-width:380px;margin:10px auto;display:block;padding:14px;border-radius:12px;border:0;font-weight:800}
+.btn{background:#fff;color:#000}
+.sec{background:#222;color:#fff;border:1px solid #444}
+input{width:100%;max-width:380px;margin:8px auto;display:block;padding:12px;border-radius:10px;border:1px solid #444;background:#1a1a1a;color:#fff}
+</style>
+</head>
+<body>
+<h3 style="text-align:center">📚 Yenny Scan</h3>
+<div id="reader"></div>
+<button class="btn" id="camBtn">📷 INICIAR CAMARA</button>
+<input id="isbnManual" placeholder="ISBN: 9789878152349">
+<button class="sec" onclick="buscar(isbnManual.value)">BUSCAR</button>
+<div id="out"></div>
+
+<script>
+let qr=null, on=false
+const btn=document.getElementById('camBtn')
+const out=document.getElementById('out')
+
+btn.onclick=async()=>{
+ if(on){ await qr.stop(); await qr.clear(); on=false; btn.textContent='📷 INICIAR CAMARA'; return }
+ qr=new Html5Qrcode("reader")
+ await qr.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:150}}, (txt)=>{
+   let isbn=txt.replace(/\D/g,'')
+   if(isbn.length>=10){ document.getElementById('isbnManual').value=isbn; buscar(isbn) }
+ })
+ on=true; btn.textContent='⏸️ PAUSAR'
+}
+
+async function buscar(isb){
+ let isbn=(isb||'').replace(/\D/g,'')
+ if(isbn.length<10) return alert('ISBN invalido')
+ out.innerHTML='Buscando...'
+ let d=await fetch('/api/buscar?isbn='+isbn).then(r=>r.json())
+ out.innerHTML=`
+  <div class="card">
+    <img src="${d.tapa}" onerror="this.src='https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg'">
+    <div>
+      <div class="t">${d.titulo}</div>
+      <div class="a">${d.autor}</div>
+      <div style="font-size:11px;opacity:.4;margin-top:4px">${d.isbn}</div>
+      <div class="p">${d.precio}</div>
+    </div>
+  </div>
+  <button class="sec" onclick="out.innerHTML=''">📷 ESCANEAR OTRO</button>
+ `
+}
 </script>
+</body>
+</html>
