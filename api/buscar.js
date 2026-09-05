@@ -1,67 +1,61 @@
 export default async function handler(req, res) {
-  const isbn = (req.query.isbn || '').replace(/\D/g, '')
-  if (!isbn) return res.status(400).json({ error: 'isbn requerido' })
+  const isbn = (req.query.isbn || '').replace(/\D/g,'')
+  if(!isbn) return res.status(400).json({error:'isbn'})
 
-  let result = {
-    isbn,
-    titulo: 'No encontrado',
-    autor: '',
-    tapa: `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`,
-    precio: 'No encontrado en Yenny',
-  }
+  let titulo = '', autor = '', tapa = '', precio = ''
 
-  // 1. BUSCA EN YENNY - metodo ft (fulltext) que si funciona
-  try {
-    const url = `https://www.yenny-elateneo.com/api/catalog_system/pub/products/search?ft=${isbn}`
-    const data = await fetch(url, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
-    }).then(r => r.json())
-
-    if (data && data[0]) {
-      const p = data[0]
-      result.titulo = p.productName
-      // Autor viene en brand o en especificaciones
-      result.autor = p.brand || (p.productReference || '')
-      // Tapa de Yenny en alta
-      if (p.items?.[0]?.images?.[0]?.imageUrl) {
-        result.tapa = p.items[0].images[0].imageUrl
+  try{
+    const html = await fetch(`https://www.yenny-elateneo.com/${isbn}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'Accept-Language': 'es-AR,es;q=0.9',
+        'Accept': 'text/html'
       }
-      const offer = p.items?.[0]?.sellers?.[0]?.commertialOffer
-      if (offer) {
-        if (offer.AvailableQuantity <= 0) {
-          result.precio = 'Sin stock'
-        } else {
-          result.precio = `$ ${Number(offer.Price).toLocaleString('es-AR', {minimumFractionDigits: 2})}`
-        }
-      }
+    }).then(r=>r.text())
+
+    // Título - viene en og:title o en h1
+    let m = html.match(/<meta property="og:title" content="([^"]+)/) || html.match(/<title>([^<]+)<\/title>/)
+    if(m) titulo = m[1].split('|')[0].trim()
+
+    // Autor - en JSON LD
+    let mAutor = html.match(/"author":\s*{\s*"@type":"[^"]+","name":"([^"]+)/)
+    if(mAutor) autor = mAutor[1]
+    else {
+      let m2 = html.match(/Autor:<\/strong>\s*([^<]+)/i) || html.match(/"brand":"([^"]+)/)
+      if(m2) autor = m2[1]
     }
-  } catch (e) {
-    console.log('Yenny fail', e)
-  }
 
-  // 2. Si Yenny no trajo titulo o tapa, completar con Google Books
-  if (result.titulo === 'No encontrado' || result.titulo.startsWith('Libro')) {
-    try {
-      const g = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r => r.json())
+    // Tapa - og:image
+    let mImg = html.match(/<meta property="og:image" content="([^"]+)/)
+    if(mImg) tapa = mImg[1]
+
+    // Precio - busca $ xx.xxx,xx en el HTML o en JSON-LD
+    let mPrecio = html.match(/"price":\s*"?([\d\.,]+)"?/) || html.match(/"lowPrice":\s*"?([\d\.,]+)"?/) || html.match(/\$\s*([\d]{1,3}(?:\.\d{3})*,\d{2})/)
+    if(mPrecio) precio = mPrecio[1].includes('$')? mPrecio[1] : `$ ${mPrecio[1]}`
+
+    // Si no encontró precio por formato, busca el texto del precio
+    if(!precio){
+      let mP2 = html.match(/(\$\s*[\d\.\,]+)/)
+      if(mP2) precio = mP2[1]
+    }
+
+  }catch(e){ console.log(e) }
+
+  // Fallbacks si Yenny bloqueó algo
+  if(!titulo){
+    try{
+      const g = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json())
       const info = g.items?.[0]?.volumeInfo
-      if (info) {
-        if (result.titulo === 'No encontrado') result.titulo = info.title
-        if (!result.autor) result.autor = (info.authors || []).join(', ')
-        if (info.imageLinks?.thumbnail && result.tapa.includes('openlibrary')) {
-          result.tapa = info.imageLinks.thumbnail.replace('http://', 'https://').replace('&zoom=1', '&zoom=5')
-        }
+      if(info){
+        titulo = info.title
+        autor = autor || (info.authors||[]).join(', ')
+        tapa = tapa || (info.imageLinks?.thumbnail?.replace('http://','https://') || '')
       }
-    } catch {}
+    }catch{}
   }
+  if(!tapa) tapa = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`
+  if(!precio) precio = 'Consultar en Yenny'
 
-  // 3. Ultimo intento de tapa por OpenLibrary si sigue fallando
-  if (result.tapa.includes('openlibrary')) {
-    try {
-      const ol = await fetch(`https://openlibrary.org/isbn/${isbn}.json`).then(r => r.json())
-      if (ol.title && result.titulo === 'No encontrado') result.titulo = ol.title
-    } catch {}
-  }
-
-  res.setHeader('Cache-Control', 's-maxage=300')
-  return res.json(result)
+  res.setHeader('Cache-Control','s-maxage=300')
+  return res.json({ isbn, titulo, autor, tapa, precio })
 }
