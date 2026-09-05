@@ -1,58 +1,47 @@
 <!doctype html>
-<html lang="es"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Yenny Scan</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-body{font-family:system-ui;background:#0f0f0f;color:#fff;margin:0;padding:12px}
-h3{text-align:center}
-#reader{width:100%;max-width:380px;margin:0 auto;background:#000;border-radius:16px;overflow:hidden}
+body{margin:0;background:#111;color:#fff;font-family:system-ui;padding:12px}
+#reader{max-width:380px;margin:0 auto;background:#000;border-radius:16px;overflow:hidden}
 #out{max-width:380px;margin:16px auto}
 .card{background:#1e1e1e;border:1px solid #333;border-radius:16px;padding:12px;display:flex;gap:12px}
-.card img{width:110px;height:160px;object-fit:cover;border-radius:8px;background:#2a2a2a}
-.t{font-weight:700;font-size:16px;line-height:1.2}
-.a{opacity:.7;font-size:13px;margin-top:4px}
+.card img{width:110px;height:160px;object-fit:cover;border-radius:8px;background:#222}
+.t{font-weight:700}.a{opacity:.7;font-size:13px;margin-top:4px}
 .p{color:#7CFC00;font-weight:900;font-size:22px;margin-top:10px}
 button{width:100%;max-width:380px;margin:10px auto;display:block;padding:14px;border-radius:12px;border:0;font-weight:800}
-.btn{background:#fff;color:#000}
-.sec{background:#2a2a2a;color:#fff;border:1px solid #444}
+.btn{background:#fff;color:#000}.sec{background:#222;color:#fff;border:1px solid #444}
 input{width:100%;max-width:380px;margin:8px auto;display:block;padding:12px;border-radius:10px;border:1px solid #444;background:#1a1a1a;color:#fff}
 </style>
 </head>
 <body>
-<h3>📚 Yenny Scan</h3>
+<h3 style="text-align:center">📚 Yenny Scan</h3>
 <div id="reader"></div>
 <button class="btn" id="camBtn">📷 INICIAR CÁMARA</button>
-<input id="isbnManual" placeholder="ISBN manual: 9789878152349">
-<button class="sec" onclick="buscar(document.getElementById('isbnManual').value)">BUSCAR ISBN</button>
+<input id="isbnManual" placeholder="ISBN: 9789878152349">
+<button class="sec" onclick="buscar(isbnManual.value)">BUSCAR</button>
 <div id="out"></div>
 <script>
 let qr=null, on=false
-const btn=document.getElementById('camBtn')
-const out=document.getElementById('out')
+const btn=document.getElementById('camBtn'), out=document.getElementById('out')
 btn.onclick=async()=>{
- if(on){ await qr.stop(); await qr.clear(); on=false; btn.textContent='📷 INICIAR CÁMARA'; return }
+ if(on){await qr.stop(); await qr.clear(); on=false; btn.textContent='📷 INICIAR CÁMARA'; return}
  qr=new Html5Qrcode("reader")
- await qr.start({facingMode:"environment"},{fps:10,qrbox:{width:280,height:150}},
-  async txt=>{
-    let isbn=txt.replace(/\D/g,'')
-    if(isbn.length>=10){
-      document.getElementById('isbnManual').value=isbn
-      await qr.pause()
-      await buscar(isbn)
-      await qr.resume()
-    }
-  })
+ await qr.start({facingMode:"environment"},{fps:10,qrbox:{width:280,height:150}},t=>{
+  let isbn=t.replace(/\D/g,'')
+  if(isbn.length>=10){document.getElementById('isbnManual').value=isbn; buscar(isbn)}
+ })
  on=true; btn.textContent='⏸️ PAUSAR'
 }
 async function buscar(isb){
  let isbn=(isb||'').replace(/\D/g,'')
- if(isbn.length<10) return alert('ISBN inválido')
- out.innerHTML='🔍 Buscando '+isbn+'...'
- try{
-  let d=await fetch('/api/buscar?isbn='+isbn).then(r=>r.json())
-  out.innerHTML=`<div class=card><img src="${d.tapa}" onerror="this.src='https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg'"><div><div class=t>${d.titulo}</div><div class=a>${d.autor||''}</div><div style="opacity:.4;font-size:11px;margin-top:4px">${d.isbn}</div><div class=p>${d.precio}</div></div></div><button class=sec onclick="document.getElementById('isbnManual').value=''; out.innerHTML=''">📷 ESCANEAR OTRO</button>`
- }catch(e){ out.innerHTML='Error '+e }
+ if(isbn.length<10) return
+ out.innerHTML='Buscando...'
+ let d=await fetch('/api/buscar?isbn='+isbn).then(r=>r.json())
+ out.innerHTML=`<div class=card><img src="${d.tapa}" onerror="this.src='https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg'"><div><div class=t>${d.titulo}</div><div class=a>${d.autor}</div><div style="font-size:11px;opacity:.4;margin-top:4px">${d.isbn}</div><div class=p>${d.precio}</div></div></div><button class=sec onclick="out.innerHTML=''">📷 ESCANEAR OTRO LIBRO</button>`
 }
 </script>
-</body></html>
+</body>
+</html>
